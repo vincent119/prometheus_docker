@@ -1,0 +1,149 @@
+version: '3.4'
+
+# volumes:
+#   grafana_data:
+#     driver: local
+#   #prometheusData:
+#   # driver: local
+#   alertmanager:
+#     driver: local
+#   prometheus:
+#     driver: local
+#   pushgateway:
+#     driver: local
+
+networks:
+  monitor-net:
+    driver: bridge
+
+services:
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:v2.32.0
+    privileged: true
+    restart: always
+    user: root
+    volumes:
+      -  /data/prometheus_docker/prometheus:/etc/prometheus/config
+      -  /data/prometheus_data:/data/prometheus_data
+      - /etc/localtime:/etc/localtime:ro
+    command:
+      - '--config.file=/etc/prometheus/config/prometheus.yml'
+      - "--storage.tsdb.path=/prometheusData"
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=10d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--query.timeout=2m'
+      - '--web.enable-admin-api'
+      - '--web.enable-lifecycle'
+    environment:
+      - TZ=Asia/Taipei
+
+    ports:
+      - '9090:9090'   
+
+  # node-exporter:
+  #   image: prom/node-exporter:v0.15.2
+  #   privileged: true
+  #   restart: always
+  #   cap_drop:
+  #     - SYS_TIME
+  #   volumes:
+  #     - /proc:/host/proc:ro
+  #     - /sys:/host/sys:ro
+  #     - /:/host/rootfs:ro
+  #   command:
+  #     - '--path.procfs=/host/proc'
+  #     - '--path.sysfs=/host/sys'
+  #     - --collector.filesystem.ignored-mount-points
+  #     - "^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($$|/)"
+  #   ports:
+  #     - '9100:9100'   
+
+  alertmanager:
+    container_name: alertmanager
+    image: prom/alertmanager
+    #privileged: true
+    restart: always
+    depends_on:
+      - prometheus
+    ports:
+      - 9093:9093
+    networks:
+      - monitor-net
+    volumes:
+      - /data/docker_vol/alertmanager/data:/data/alertmanager/data
+      - /data/prometheus_docker/alertmanager:/etc/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/data/alertmanager/data'
+    environment:
+      - TZ=Asia/Taipei
+    links:
+    - prometheus
+
+  pushgateway:
+    image: prom/pushgateway
+    container_name: pushgateway
+    volumes:
+      - /data/prometheus_docker/pushgateway:/etc/pushgateway
+    restart: unless-stopped
+    expose:
+      - 9091
+    ports:
+      - "9091:9091"
+    networks:
+      - monitor-net
+    labels:
+      org.label-schema.group: "monitoring"
+    links:
+    - prometheus
+    environment:
+      - TZ=Asia/Taipei
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana
+    user: "root"
+    privileged: true
+    restart: always
+    depends_on:
+      - prometheus
+    ports:
+      - 3000:3000
+    volumes:
+      - /data/grafana_data:/data/grafana_data
+      #- ./grafana/provisioning/:/data/docker_d/grafana/provisioning/
+    #env_file:
+    #  - ./grafana/config.monitoring
+    command:
+      - 'chown -R root:root /data/grafana_data'
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=pass
+      #- GF_PATHS_CONFIG=/data/docker_d/grafana/grafana.ini
+      - GF_PATHS_DATA=/data/grafana_data
+      - GF_PATHS_PLUGINS=/data/grafana_data/plugin
+      - GF_PATHS_LOGS=/var/log/grafana.log
+      - GF_LOG_FILTERS=auth:debug
+      - TZ=Asia/Taipei
+    networks:
+      - monitor-net
+    labels:
+      org.label-schema.group: "monitoring"
+    links:
+    - prometheus
+  # fluentd:
+  #   image: fluent/fluentd
+  #   privileged: true
+  #   restart: always
+  #   ports:
+  #     - 24224:24224
+  #     - 24224:24224/udp
+  #   volumes:
+  #     - ./fluentd/config:/data/docker_d/fluentd
+  #     - ./fluentd/geoip:/geoip
+  #   #command:
+  #   #  - 'fluent-gem install fluent-plugin-prometheus'
+
+
